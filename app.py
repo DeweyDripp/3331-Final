@@ -1,6 +1,7 @@
 import sqlite3
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_here'  # Ensure you have a secret key for session management
@@ -26,12 +27,12 @@ def init_db():
 # Initialize the database
 init_db()
 
-# Route for the home page (login if not logged in)
+# Route for the home page (dashboard)
 @app.route('/')
 def index():
     if 'user_id' not in session:
         return redirect(url_for('login'))  # Redirect to login if not logged in
-    return redirect(url_for('dashboard'))  # Redirect to dashboard if logged in
+    return render_template('index.html')
 
 # Route for login
 @app.route('/login', methods=['GET', 'POST'])
@@ -88,6 +89,17 @@ def dashboard():
 
         cursor.execute('SELECT * FROM expenses WHERE user_id = ?', (session['user_id'],))
         expenses = cursor.fetchall()
+
+        # Format the date in MM-DD-YYYY format
+        for i, expense in enumerate(expenses):
+            date_str = expense[2]  # Date is the 3rd column (index 2)
+            try:
+                # Try parsing the date and reformat it
+                date_obj = datetime.strptime(date_str, '%Y-%m-%d')  # Adjust format if needed
+                expenses[i] = expense[:2] + (date_obj.strftime('%m-%d-%Y'),) + expense[3:]
+            except ValueError:
+                # If the date format is incorrect, leave it unchanged
+                continue
 
     return render_template('dashboard.html', username=username, expenses=expenses)
 
