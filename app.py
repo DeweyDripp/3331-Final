@@ -1,95 +1,124 @@
-import os
 import sqlite3
-from flask import Flask, render_template, request, redirect, url_for, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
+app.secret_key = 'your_secret_key_here'  # Ensure you have a secret key for session management
 
-# Initialize the database and create the table if it doesn't exist
+# Database initialization function
 def init_db():
-    # Get the absolute path of the current script
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    db_path = os.path.join(script_dir, 'db', 'expenses.db')
-
-    # Ensure the directory exists
-    if not os.path.exists(os.path.dirname(db_path)):
-        os.makedirs(os.path.dirname(db_path))
-    
-    print(f"Database path: {db_path}")
-    
-    # Connect to the SQLite database (it will create the db file if it doesn't exist)
-    conn = sqlite3.connect(db_path)
-    c = conn.cursor()
-
-    # Create the expenses table if it doesn't exist
-    try:
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS expenses (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                description TEXT NOT NULL,
-                amount REAL NOT NULL,
-                category TEXT NOT NULL,
-                date TEXT NOT NULL
-            )
-        ''')
+    with sqlite3.connect('db/expenses.db') as conn:
+        cursor = conn.cursor()
+        cursor.execute('''CREATE TABLE IF NOT EXISTS users (
+                          id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          username TEXT NOT NULL UNIQUE,
+                          password TEXT NOT NULL)''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS expenses (
+                          id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          user_id INTEGER,
+                          date TEXT NOT NULL,
+                          category TEXT NOT NULL,
+                          amount REAL NOT NULL,
+                          description TEXT NOT NULL,
+                          FOREIGN KEY (user_id) REFERENCES users (id))''')
         conn.commit()
-        print("Table created or already exists.")
-    except sqlite3.Error as e:
-        print(f"Error creating table: {e}")
-    
-    conn.close()
 
-# Call init_db to initialize the database
+# Initialize the database
 init_db()
 
+# Route for the home page (login if not logged in)
 @app.route('/')
 def index():
-    # Get expenses from the database
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    db_path = os.path.join(script_dir, 'db', 'expenses.db')
-    
-    conn = sqlite3.connect(db_path)
-    c = conn.cursor()
-    expenses = c.execute('SELECT * FROM expenses').fetchall()
-    conn.close()
+    if 'user_id' not in session:
+        return redirect(url_for('login'))  # Redirect to login if not logged in
+    return redirect(url_for('dashboard'))  # Redirect to dashboard if logged in
 
-    return render_template('index.html', expenses=expenses)
+# Route for login
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
 
-@app.route('/add_expense', methods=['POST'])
+        # Check if the user exists in the database
+        with sqlite3.connect('db/expenses.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
+            user = cursor.fetchone()
+
+            if user and check_password_hash(user[2], password):  # Check hashed password
+                session['user_id'] = user[0]  # Store user_id in session
+                return redirect(url_for('dashboard'))  # Redirect to the dashboard
+            else:
+                flash('Invalid credentials', 'error')  # Show error message
+    return render_template('login.html')
+
+# Route for the registration page
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        hashed_password = generate_password_hash(password)
+
+        with sqlite3.connect('db/expenses.db') as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute('INSERT INTO users (username, password) VALUES (?, ?)', 
+                               (username, hashed_password))
+                conn.commit()
+                flash('Registration successful, please log in.', 'success')
+                return redirect(url_for('login'))
+            except sqlite3.IntegrityError:
+                flash('Username already exists.', 'error')
+    return render_template('register.html')
+
+# Route for the user dashboard
+@app.route('/dashboard')
+def dashboard():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))  # Redirect to login if not logged in
+
+    # Fetch the username and expenses from the database
+    with sqlite3.connect('db/expenses.db') as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT username FROM users WHERE id = ?', (session['user_id'],))
+        user = cursor.fetchone()
+        username = user[0] if user else 'User'
+
+        cursor.execute('SELECT * FROM expenses WHERE user_id = ?', (session['user_id'],))
+        expenses = cursor.fetchall()
+
+    return render_template('dashboard.html', username=username, expenses=expenses)
+
+# Route for adding an expense
+@app.route('/add_expense', methods=['GET', 'POST'])
 def add_expense():
-    # Get the data from the form
-    description = request.form['description']
-    amount = request.form['amount']
-    category = request.form['category']
-    date = request.form['date']
+    if 'user_id' not in session:
+        return redirect(url_for('login'))  # Redirect to login if not logged in
 
-    # Insert the new expense into the database
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    db_path = os.path.join(script_dir, 'db', 'expenses.db')
+    if request.method == 'POST':
+        date = request.form['date']
+        category = request.form['category']
+        amount = request.form['amount']
+        description = request.form['description']
 
-    conn = sqlite3.connect(db_path)
-    c = conn.cursor()
-    c.execute('''
-        INSERT INTO expenses (description, amount, category, date)
-        VALUES (?, ?, ?, ?)
-    ''', (description, amount, category, date))
-    conn.commit()
-    conn.close()
+        with sqlite3.connect('db/expenses.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute('''INSERT INTO expenses (user_id, date, category, amount, description)
+                              VALUES (?, ?, ?, ?, ?)''', 
+                           (session['user_id'], date, category, amount, description))
+            conn.commit()
 
-    return redirect(url_for('index'))
+        return redirect(url_for('dashboard'))  # Redirect to the dashboard after adding the expense
 
-@app.route('/delete_expense/<int:expense_id>', methods=['GET'])
-def delete_expense(expense_id):
-    # Delete the expense from the database
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    db_path = os.path.join(script_dir, 'db', 'expenses.db')
+    return render_template('index.html')
 
-    conn = sqlite3.connect(db_path)
-    c = conn.cursor()
-    c.execute('DELETE FROM expenses WHERE id = ?', (expense_id,))
-    conn.commit()
-    conn.close()
-
-    return redirect(url_for('index'))
+# Route for logging out
+@app.route('/logout')
+def logout():
+    session.pop('user_id', None)  # Remove user_id from session to log out
+    return redirect(url_for('login'))  # Redirect to the login page
 
 if __name__ == '__main__':
     app.run(debug=True)
