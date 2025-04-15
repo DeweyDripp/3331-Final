@@ -13,6 +13,18 @@
     </div>
 
     <h2>Expense List</h2>
+
+    <!-- Search and Filter Form -->
+    <form method="GET" action="{{ url_for('dashboard') }}">
+        <label for="search">Search Description</label>
+        <input type="text" id="search" name="search" placeholder="e.g., groceries" value="{{ request.args.get('search', '') }}">
+
+        <label for="category">Filter by Category</label>
+        <input type="text" id="category" name="category" placeholder="e.g., food" value="{{ request.args.get('category', '') }}">
+
+        <button type="submit">Apply</button>
+    </form>
+
     <table>
         <thead>
             <tr>
@@ -23,16 +35,20 @@
             </tr>
         </thead>
         <tbody>
+            {% set total = 0 %}
             {% for expense in expenses %}
             <tr>
-                <td>{{ expense[2] }}</td>  <!-- Date (index 2) -->
-                <td>{{ expense[3] }}</td>  <!-- Category (index 3) -->
-                <td>{{ expense[4] }}</td>  <!-- Amount (index 4) -->
-                <td>{{ expense[5] }}</td>  <!-- Description (index 5) -->
+                <td>{{ expense[2] }}</td>
+                <td>{{ expense[3] }}</td>
+                <td>${{ expense[4] }}</td>
+                <td>{{ expense[5] }}</td>
             </tr>
+            {% set total = total + expense[4] %}
             {% endfor %}
         </tbody>
     </table>
+
+    <p><strong>Total Spent:</strong> ${{ total }}</p>
 
     <h2>Add Expense</h2>
     <form action="{{ url_for('add_expense') }}" method="POST">

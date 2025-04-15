@@ -2,12 +2,13 @@ import sqlite3
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
+import os
 
 app = Flask(__name__)
-app.secret_key = 'temp_secret_key_for_ryan'  # Ensure you have a secret key for session management
+app.secret_key = 'temp_secret_key_for_ryan'
 
-# Database initialization function
 def init_db():
+    os.makedirs('db', exist_ok=True)
     with sqlite3.connect('db/expenses.db') as conn:
         cursor = conn.cursor()
         cursor.execute('''CREATE TABLE IF NOT EXISTS users (
@@ -24,13 +25,12 @@ def init_db():
                           FOREIGN KEY (user_id) REFERENCES users (id))''')
         conn.commit()
 
-# Initialize the database
 init_db()
 
 @app.route('/')
 def index():
     if 'user_id' not in session:
-        return redirect(url_for('login'))  # Redirect to login if not logged in
+        return redirect(url_for('login'))
     return redirect(url_for('dashboard'))
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -58,7 +58,7 @@ def register():
         with sqlite3.connect('db/expenses.db') as conn:
             cursor = conn.cursor()
             try:
-                cursor.execute('INSERT INTO users (username, password) VALUES (?, ?)',
+                cursor.execute('INSERT INTO users (username, password) VALUES (?, ?)', 
                                (username, hashed_password))
                 conn.commit()
                 flash('Registration successful, please log in.', 'success')
@@ -67,7 +67,7 @@ def register():
                 flash('Username already exists.', 'error')
     return render_template('register.html')
 
-@app.route('/dashboard')
+@app.route('/dashboard', methods=['GET', 'POST'])
 def dashboard():
     if 'user_id' not in session:
         return redirect(url_for('login'))
@@ -78,49 +78,59 @@ def dashboard():
         user = cursor.fetchone()
         username = user[0] if user else 'User'
 
-        cursor.execute('SELECT * FROM expenses WHERE user_id = ?', (session['user_id'],))
+        # Handle expense submission
+        if request.method == 'POST':
+            date = request.form['date']
+            category = request.form['category']
+            amount = request.form['amount']
+            description = request.form['description']
+            cursor.execute('''INSERT INTO expenses (user_id, date, category, amount, description)
+                              VALUES (?, ?, ?, ?, ?)''',
+                           (session['user_id'], date, category, amount, description))
+            conn.commit()
+
+        # Handle search + filter
+        search = request.args.get('search', '').strip()
+        category_filter = request.args.get('category', '').strip()
+
+        query = 'SELECT * FROM expenses WHERE user_id = ?'
+        params = [session['user_id']]
+
+        if search:
+            query += ' AND UPPER(description) LIKE ?'
+            params.append(f'%{search.upper()}%')
+        if category_filter:
+            query += ' AND UPPER(category) LIKE ?'
+            params.append(f'%{category_filter.upper()}%')
+
+        cursor.execute(query, params)
         expenses = cursor.fetchall()
 
+        # Format date
         for i, expense in enumerate(expenses):
-            date_str = expense[2]
             try:
-                date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                date_obj = datetime.strptime(expense[2], '%Y-%m-%d')
                 expenses[i] = expense[:2] + (date_obj.strftime('%m-%d-%Y'),) + expense[3:]
             except ValueError:
                 continue
 
     return render_template('dashboard.html', username=username, expenses=expenses)
 
-@app.route('/add_expense', methods=['GET', 'POST'])
+@app.route('/add_expense', methods=['POST'])
 def add_expense():
     if 'user_id' not in session:
         return redirect(url_for('login'))
 
-    if request.method == 'POST':
-        date = request.form['date']
-        category = request.form['category']
-        amount = request.form['amount']
-        description = request.form['description']
-
-        with sqlite3.connect('db/expenses.db') as conn:
-            cursor = conn.cursor()
-            cursor.execute('''INSERT INTO expenses (user_id, date, category, amount, description)
-                              VALUES (?, ?, ?, ?, ?)''',
-                           (session['user_id'], date, category, amount, description))
-            conn.commit()
-
-        return redirect(url_for('dashboard'))
-
-    return redirect(url_for('dashboard'))
-
-@app.route('/delete_expense/<int:expense_id>', methods=['POST'])
-def delete_expense(expense_id):
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
+    date = request.form['date']
+    category = request.form['category']
+    amount = request.form['amount']
+    description = request.form['description']
 
     with sqlite3.connect('db/expenses.db') as conn:
         cursor = conn.cursor()
-        cursor.execute('DELETE FROM expenses WHERE id = ? AND user_id = ?', (expense_id, session['user_id']))
+        cursor.execute('''INSERT INTO expenses (user_id, date, category, amount, description)
+                          VALUES (?, ?, ?, ?, ?)''',
+                       (session['user_id'], date, category, amount, description))
         conn.commit()
 
     return redirect(url_for('dashboard'))
