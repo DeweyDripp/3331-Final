@@ -54,6 +54,9 @@ def register():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
+        if len(password) < 8:
+            flash('Password must be at least 8 characters long.', 'error')
+            return redirect(url_for('register'))
         hashed_password = generate_password_hash(password)
         with sqlite3.connect('db/expenses.db') as conn:
             cursor = conn.cursor()
