@@ -34,9 +34,13 @@
         <label for="password">Password:</label>
         <input type="password" id="password" name="password" required><br>
 
+        <div class="g-recaptcha" data-sitekey="6Lcr6icrAAAAAKEGHPeab69Shveb3-L8LmUNphpW"></div>
+        <br>
+
         <button type="submit">Register</button>
     </form>
 
     <p>Already have an account? <a href="{{ url_for('login') }}">Login</a></p>
+<script src="https://www.google.com/recaptcha/api.js" async defer></script>
 </body>
 </html>

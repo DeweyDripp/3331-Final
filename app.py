@@ -3,9 +3,11 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 import os
+import requests
 
 app = Flask(__name__)
 app.secret_key = 'temp_secret_key_for_ryan'
+RECAPTCHA_SECRET_KEY = '6Lcr6icrAAAAACZNznfshSKSjgrFPIiQttmrhZ4V'
 
 def init_db():
     os.makedirs('db', exist_ok=True)
@@ -56,6 +58,13 @@ def register():
         password = request.form['password']
         if len(password) < 8:
             flash('Password must be at least 8 characters long.', 'error')
+            return redirect(url_for('register'))
+        recaptcha_response = request.form.get('g-recaptcha-response')
+        verify_url = 'https://www.google.com/recaptcha/api/siteverify'
+        payload = {'secret': RECAPTCHA_SECRET_KEY, 'response': recaptcha_response}
+        recaptcha_check = requests.post(verify_url, data=payload).json()
+        if not recaptcha_check.get('success'):
+            flash('reCAPTCHA verification failed.', 'error')
             return redirect(url_for('register'))
         hashed_password = generate_password_hash(password)
         with sqlite3.connect('db/expenses.db') as conn:
